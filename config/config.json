@@ -1,0 +1,4 @@
+{
+    "ai_api_url": "http://127.0.0.1:1337/v1/chat/completions",
+    "ai_model": "qwen2_5-coder-7b-instruct-q4_k_m"
+}
