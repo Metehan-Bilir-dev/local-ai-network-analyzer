@@ -43,7 +43,7 @@ CLI → Nmap → Parser → Kural Motoru → [NVD CVE] → Yerel LLM (Jan.ai) �
 ## Kurulum
 
 ```bash
-git clone [repo adresi]
+git clone https://github.com/Metehan-Bilir-dev/local-ai-network-analyzer.git
 cd local-ai-network-analyzer
 python -m venv .venv
 source .venv/bin/activate        # fish: source .venv/bin/activate.fish
