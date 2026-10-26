@@ -87,7 +87,7 @@ OS tespiti (`-O`) ve bazı taramalar root yetkisi gerektirir.
 
 - Tarama verisi yalnızca yerel LLM'e gider, buluta çıkmaz.
 - NVD sorgusunda yalnızca ürün/sürüm bilgisi internete çıkar, IP adresi gönderilmez. Sorgu kullanıcı onayına bağlıdır.
-- Nmap çıktısı LLM'e **güvenilmeyen veri** olarak bildirilir (prompt injection riskine karşı). [Test sonucunu buraya yaz]
+- Nmap çıktısı LLM'e güvenilmeyen veri olarak bildirilir. **Test sonucu:** yalnızca prompt uyarısı yeterli olmadı; banner alanına yerleştirilen talimat 5 denemenin 5'inde modeli etkiledi (zehirli portlarda 15/15) ve aynı istekteki temiz bir porta da bulaştı. Bu yüzden iki katman eklendi: (1) banner/sürüm alanları modele gönderilmeden önce temizlenir, (2) önem derecesine kural bulgusu ve CVSS'e göre koddan alt sınır konur. Aynı testte etkilenen sayısı 0/15'e düştü. Test tek bir payload türüyle ve tek modelle yapılmıştır; kesin koruma sağladığı iddia edilmez.
 - Kural bulgusu olan portların önem derecesi, modele bırakılmadan koddan zorlanır.
 - CVE numaralarını model üretmez, yalnızca NVD'den gelen kayıtlar kullanılır.
 
@@ -104,7 +104,7 @@ Araç, VirtualBox üzerinde **Host-Only** ağda çalışan Metasploitable 2 ve k
 - NVD'den gelen CVE'ler sürüm için doğrulanmış değil, olası eşleşmedir. Her servis için CVSS'e göre ilk 5 kayıt tutulur.
 - Zafiyet script'leri çalıştırılmadıysa "bulgu yok" sonucu "güvenli" anlamına gelmez.
 - NVD sorgusu internet gerektirir.
-
+- 7B model prompt talimatlarına tam uymaz (örn. "arka kapı" ifadesini gereksiz kullanabilir, eski sürümlü SSH için "güvenli görünüyor" diyebilir).
 ## Gelecek Çalışmalar
 
 - NVD verisinin yerelde indirilip tamamen offline çalışma

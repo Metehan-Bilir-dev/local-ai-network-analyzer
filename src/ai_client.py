@@ -1,5 +1,16 @@
 import requests
 import json
+import re
+
+SAFE_CHARS = re.compile(r"[^A-Za-z0-9 ._/+:()\-]")
+
+
+def _clean(text, limit=60):
+    raw = str(text or "")
+    cleaned = SAFE_CHARS.sub("", raw)
+    if len(raw) > limit or cleaned != raw:
+        return "[şüpheli banner kaldırıldı]"
+    return cleaned
 
 CHUNK_SIZE = 6
 
@@ -85,7 +96,7 @@ class LocalAI:
             for p in h["ports"]:
                 item = {"port": p["port"], "service": p.get("service")}
                 software = " ".join(
-                    filter(None, [p.get("product"), p.get("version")])
+                    filter(None, [_clean(p.get("product")), _clean(p.get("version"))])
                 ).strip()
                 if software:
                     item["software"] = software

@@ -222,17 +222,26 @@ def write_ai_log(ai_result, timestamp):
 
     return log_path
 def enforce_rule_severity(ai_result, parsed):
-    """Kural bulgusu olan portların severity'sini en az 'high' yap."""
+    """Kural ve CVSS'e göre önem derecesine alt sınır koyar."""
     order = ["low", "medium", "high", "critical"]
-    flagged = {
-        p["port"] for h in parsed["hosts"] for p in h["ports"]
-        if p.get("rule_findings")
-    }
+    floors = {}
+    for h in parsed["hosts"]:
+        for p in h["ports"]:
+            floor = None
+            top = max((c.get("cvss") or 0 for c in p.get("cves", [])), default=0)
+            if p.get("rule_findings") or top >= 9.0:
+                floor = "high"
+            elif top >= 7.0:
+                floor = "medium"
+            if floor:
+                floors[p["port"]] = floor
+
     for f in ai_result.get("findings", []):
-        if f.get("port") in flagged:
+        floor = floors.get(f.get("port"))
+        if floor:
             current = str(f.get("severity", "low")).lower()
-            if current not in order or order.index(current) < order.index("high"):
-                f["severity"] = "high"
+            if current not in order or order.index(current) < order.index(floor):
+                f["severity"] = floor
 def main():
     args = parse_args()
     scanner = NetworkScanner()
