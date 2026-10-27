@@ -2,10 +2,15 @@ CRITICAL_RULES = {
     1524: "Parolasız root shell (bindshell)",
     6667: "UnrealIRCd: bilinen arka kapılı sürümler var, sürümü doğrula",
     23: "Telnet: şifreler düz metin gider",
+    512: "rexec: r-servisleri, kimlik doğrulama zayıf, veri düz metin",
+    513: "rlogin: r-servisleri, kimlik doğrulama zayıf, veri düz metin",
+    514: "rsh: r-servisleri, kimlik doğrulama zayıf, veri düz metin",
+    1099: "Java RMI registry dışarıya açık: uzaktan kod çalıştırma riski",
 }
 
 VERSION_RULES = [
     ("vsftpd", "2.3.4", "vsftpd 2.3.4 içinde bilinen arka kapı var (CVE-2011-2523)"),
+    ("openssh", "4.7", "OpenSSH 4.7 çok eski (2008), güncel değil; güncellenmeli"),
 ]
 
 

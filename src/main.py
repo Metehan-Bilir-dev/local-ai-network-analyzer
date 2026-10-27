@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import argparse
 from datetime import datetime
 from scanner import NetworkScanner
@@ -8,6 +9,8 @@ from ai_client import LocalAI
 from cve_lookup import CVELookup
 from rules import apply_rules
 from reporter import generate_pdf
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 SCAN_PROFILES = {
     "1": {
@@ -37,19 +40,16 @@ SCAN_PROFILES = {
     },
 }
 
+CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}")
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Yerel Ağ Zafiyet Analiz ve Raporlama Aracı"
     )
     parser.add_argument("--target", default=None, help="Doğrudan taranacak hedef IP (verilirse keşif atlanır).")
-    parser.add_argument("--subnet", default=None, help="Keşif için subnet.")
-    parser.add_argument(
-        "--format", choices=["json", "txt", "pdf"], default="json",
-        help="Çıktı formatı (varsayılan: json)"
-    
-    )
-    parser.add_argument("--ai", action="store_true", help="Tarama sonrası AI analizi yap.")
+    parser.add_argument("--subnet", default=None, help="Keşif için subnet (örn. 192.168.56.0/24).")
+    parser.add_argument("--ai", action="store_true", help="Tarama sonrası AI analizini soru sormadan çalıştır.")
     return parser.parse_args()
 
 
@@ -83,6 +83,7 @@ def select_scan_profile():
             return SCAN_PROFILES[choice]
         print("Geçersiz seçim, tekrar dene.")
 
+
 def has_finding(script_output):
     """Script çıktılarında gerçek bir bulgu var mı kontrol eder."""
     clean_phrases = [
@@ -99,6 +100,7 @@ def has_finding(script_output):
             return True
     return False
 
+
 def ask_yes_no(question):
     while True:
         answer = input(f"{question} (e/h): ").strip().lower()
@@ -108,8 +110,9 @@ def ask_yes_no(question):
             return False
         print("Lütfen 'e' veya 'h' gir.")
 
+
 def enrich_with_cves(parsed):
-    cache_dir = os.path.join(os.path.dirname(__file__), "..", "cve_cache")
+    cache_dir = os.path.join(BASE_DIR, "cve_cache")
     lookup = CVELookup(cache_dir)
 
     for host in parsed["hosts"]:
@@ -159,8 +162,27 @@ def print_summary(parsed):
             print("\nScript taraması bulgu üretmedi.")
         else:
             print("\nZafiyet script'leri çalıştırılmadı; bu 'zafiyet yok' anlamına gelmez.")
+
+
+def print_ai_result(ai_result):
+    print(f"\nÖzet: {ai_result.get('summary', '')}\n")
+
+    findings = ai_result.get("findings", [])
+    if not findings:
+        print("AI herhangi bir bulgu raporlamadı.")
+        return
+
+    for finding in findings:
+        print(f"[{str(finding.get('severity', '?')).upper()}] Port {finding.get('port')} - {finding.get('service')}")
+        print(f"  Sebep: {finding.get('reason')}")
+        print(f"  Öneri: {finding.get('recommendation')}\n")
+
+    for w in ai_result.get("warnings", []):
+        print(f"UYARI: bir grup analiz edilemedi: {w}")
+
+
 def write_scan_log(parsed, timestamp):
-    log_dir = os.path.join(os.path.dirname(__file__), "..", "logs", "scan_text")
+    log_dir = os.path.join(BASE_DIR, "logs", "scan_text")
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"scan_{timestamp}.txt")
 
@@ -201,7 +223,7 @@ def write_scan_log(parsed, timestamp):
 
 
 def write_ai_log(ai_result, timestamp):
-    log_dir = os.path.join(os.path.dirname(__file__), "..", "logs", "ai_text")
+    log_dir = os.path.join(BASE_DIR, "logs", "ai_text")
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, f"ai_analysis_{timestamp}.txt")
 
@@ -212,7 +234,7 @@ def write_ai_log(ai_result, timestamp):
         lines.append("AI herhangi bir bulgu raporlamadı.")
     else:
         for finding in findings:
-            lines.append(f"[{finding.get('severity', '?').upper()}] Port {finding.get('port')} - {finding.get('service')}")
+            lines.append(f"[{str(finding.get('severity', '?')).upper()}] Port {finding.get('port')} - {finding.get('service')}")
             lines.append(f"  Sebep: {finding.get('reason')}")
             lines.append(f"  Öneri: {finding.get('recommendation')}")
             lines.append("")
@@ -221,6 +243,8 @@ def write_ai_log(ai_result, timestamp):
         f.write("\n".join(lines))
 
     return log_path
+
+
 def enforce_rule_severity(ai_result, parsed):
     """Kural ve CVSS'e göre önem derecesine alt sınır koyar."""
     order = ["low", "medium", "high", "critical"]
@@ -235,6 +259,7 @@ def enforce_rule_severity(ai_result, parsed):
                 floor = "medium"
             if floor:
                 floors[p["port"]] = floor
+            ai_result["summary"] = build_summary(ai_result.get("findings", []))
 
     for f in ai_result.get("findings", []):
         floor = floors.get(f.get("port"))
@@ -242,6 +267,74 @@ def enforce_rule_severity(ai_result, parsed):
             current = str(f.get("severity", "low")).lower()
             if current not in order or order.index(current) < order.index(floor):
                 f["severity"] = floor
+
+def build_summary(findings):
+    order = ["critical", "high", "medium", "low"]
+    counts = {}
+    for f in findings:
+        sev = str(f.get("severity", "?")).lower()
+        counts[sev] = counts.get(sev, 0) + 1
+    if not findings:
+        return "Bulgu raporlanmadı."
+    parts = [f"{counts[s]} {s}" for s in order if s in counts]
+    return f"Toplam {len(findings)} bulgu: " + ", ".join(parts) + "."
+
+def sanitize_ai_output(ai_result, parsed):
+    """Doğrulanamayan CVE'leri siler, doğrulanmamış 'bilinen açık' iddialarını yumuşatır,
+    CVE'li portların sebep metnini NVD verisinden üretir.
+    Silinen CVE sayısını döndürür."""
+    allowed = {}
+    backdoor_ports = set()
+    rule_ports = set()
+    cve_info = {}
+    for h in parsed["hosts"]:
+        for p in h["ports"]:
+            cves = p.get("cves", [])
+            ids = {c["id"] for c in cves}
+            if cves:
+                top = max((c.get("cvss") or 0) for c in cves)
+                cve_info[p["port"]] = (top, len(cves))
+            for r in p.get("rule_findings", []):
+                rule_ports.add(p["port"])
+                ids.update(CVE_RE.findall(r))
+                if "arka kapı" in r.lower():
+                    backdoor_ports.add(p["port"])
+            allowed[p["port"]] = ids
+
+    removed = 0
+    for f in ai_result.get("findings", []):
+        port = f.get("port")
+        ok = allowed.get(port, set())
+        for key in ("reason", "recommendation"):
+            text = str(f.get(key, ""))
+
+            for cve_id in set(CVE_RE.findall(text)):
+                if cve_id not in ok:
+                    text = text.replace(cve_id, "[CVE doğrulanamadı]")
+                    removed += 1
+
+            if port not in backdoor_ports:
+                text = re.sub(r"arka kapı(?!lı)", "güvenlik açığı", text, flags=re.IGNORECASE)
+
+            f[key] = text
+
+        reason = str(f.get("reason", "")).strip()
+        if port in cve_info and port not in rule_ports:
+            top, n = cve_info[port]
+            f["reason"] = (
+                f"NVD'de bu ürün/sürüm için {n} olası eşleşme bulundu "
+                f"(en yüksek CVSS {top}). Sürüm eşleşmesi doğrulanmamıştır."
+            )
+        elif port not in rule_ports:
+            claims_vuln = "açığ" in reason.lower() or "açık" in reason.lower()
+            if len(reason) < 30 or claims_vuln:
+                f["reason"] = (
+                    "Bu servis için doğrulanmış sürüm/CVE verisi yok. "
+                    "Genel bir saldırı yüzeyi oluşturur; elle doğrulanmalıdır."
+                )
+    return removed
+
+
 def main():
     args = parse_args()
     scanner = NetworkScanner()
@@ -274,15 +367,13 @@ def main():
 
     parsed = parse_scan_result(result)
     apply_rules(parsed)
-    
 
     if ask_yes_no("\nNVD'de CVE araması yapılsın mı? (sadece ürün/sürüm gönderilir, IP gönderilmez)"):
         print("CVE'ler sorgulanıyor (her yeni servis için birkaç saniye sürebilir)...")
         enrich_with_cves(parsed)
         print_cves(parsed)
 
-
-    scans_dir = os.path.join(os.path.dirname(__file__), "..", "scans")
+    scans_dir = os.path.join(BASE_DIR, "scans")
     os.makedirs(scans_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
@@ -296,7 +387,7 @@ def main():
 
     scan_log_path = write_scan_log(parsed, timestamp)
     print(f"Tarama log dosyası: {scan_log_path}")
-    
+
     ai_result = None
     run_ai = args.ai or ask_yes_no("\nAI ile özetlemek ister misiniz?")
 
@@ -304,33 +395,30 @@ def main():
         print("\n--- AI Analizi ---")
         print("Model analiz ediyor, lütfen bekle...")
 
-        config_path = os.path.join(os.path.dirname(__file__), "..", "config", "config.json")
-        with open(config_path) as f:
-            config = json.load(f)
+        try:
+            config_path = os.path.join(BASE_DIR, "config", "config.json")
+            with open(config_path, encoding="utf-8") as f:
+                config = json.load(f)
+            ai = LocalAI(config["ai_api_url"], config["ai_model"])
+            ai_result = ai.analyze(parsed)
+        except Exception as e:
+            print(f"\nAI hatası: {e}")
+            ai_result = None
 
-        ai = LocalAI(config["ai_api_url"], config["ai_model"])
-        ai_result = ai.analyze(parsed)
-
-        if "error" not in ai_result:
-            enforce_rule_severity(ai_result, parsed)
-
-        if "error" in ai_result:
+        if ai_result and "error" in ai_result:
             print(f"\nAI analiz hatası: {ai_result['error']}")
-        else:
-            print(f"\nÖzet: {ai_result.get('summary', '')}\n")
+            ai_result = None
 
-            findings = ai_result.get("findings", [])
-            if not findings:
-                print("AI herhangi bir bulgu raporlamadı.")
-            else:
-                for finding in findings:
-                    print(f"[{finding.get('severity', '?').upper()}] Port {finding.get('port')} - {finding.get('service')}")
-                    print(f"  Sebep: {finding.get('reason')}")
-                    print(f"  Öneri: {finding.get('recommendation')}\n")
+        if ai_result:
+            removed = sanitize_ai_output(ai_result, parsed)
+            enforce_rule_severity(ai_result, parsed)
+            if removed:
+                print(f"Not: {removed} doğrulanamayan CVE numarası rapordan çıkarıldı.")
 
-            reports_dir = os.path.join(os.path.dirname(__file__), "..", "reports")
+            print_ai_result(ai_result)
+
+            reports_dir = os.path.join(BASE_DIR, "reports")
             os.makedirs(reports_dir, exist_ok=True)
-
             ai_filename = os.path.join(reports_dir, f"ai_analysis_{timestamp}.json")
             with open(ai_filename, "w", encoding="utf-8") as f:
                 json.dump(ai_result, f, indent=4, ensure_ascii=False)
@@ -338,14 +426,15 @@ def main():
 
             ai_log_path = write_ai_log(ai_result, timestamp)
             print(f"AI log dosyası: {ai_log_path}")
-       
-        if ask_yes_no("\nPDF rapor oluşturulsun mu?"):
-                pdf_dir = os.path.join(os.path.dirname(__file__), "..", "reports", "pdf")
+
+    if ask_yes_no("\nPDF rapor oluşturulsun mu?"):
+        pdf_dir = os.path.join(BASE_DIR, "reports", "pdf")
         try:
             pdf_path = generate_pdf(parsed, ai_result, timestamp, pdf_dir)
             print(f"PDF rapor kaydedildi: {pdf_path}")
         except Exception as e:
             print(f"PDF oluşturulamadı: {e}")
+
 
 if __name__ == "__main__":
     main()

@@ -1,15 +1,12 @@
 import json
 import os
 import time
-
+import hashlib
 import requests
 
 NVD_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
-
 def cpe22_to_cpe23(cpe):
-    """nmap 'cpe:/a:vendor:product:version' verir, NVD 2.3 formatı ister.
-    Sürüm yoksa None döner (sürümsüz CPE ile arama anlamsız)."""
     if not cpe or not cpe.startswith("cpe:/"):
         return None
     parts = cpe[5:].split(":")
@@ -18,17 +15,15 @@ def cpe22_to_cpe23(cpe):
     parts += ["*"] * (11 - len(parts))
     return "cpe:2.3:" + ":".join(parts[:11])
 
-
 class CVELookup:
-
     def __init__(self, cache_dir, delay=6.5):
         self.cache_dir = cache_dir
-        self.delay = delay  # API anahtarsız: 30 sn'de 5 istek
+        self.delay = delay
         os.makedirs(cache_dir, exist_ok=True)
 
     def _cache_path(self, cpe23):
-        safe = cpe23.replace(":", "_").replace("*", "x").replace("/", "_")
-        return os.path.join(self.cache_dir, safe + ".json")
+        safe_hash = hashlib.sha256(cpe23.encode("utf-8")).hexdigest()
+        return os.path.join(self.cache_dir, safe_hash + ".json")
 
     def lookup(self, cpe, limit=5):
         cpe23 = cpe22_to_cpe23(cpe)

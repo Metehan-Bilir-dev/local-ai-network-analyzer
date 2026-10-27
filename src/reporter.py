@@ -12,7 +12,17 @@ from reportlab.platypus import (
     Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 )
 
-FONT_DIRS = ["/usr/share/fonts/TTF", "/usr/share/fonts/dejavu", "/usr/share/fonts/truetype/dejavu"]
+ASSET_FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "fonts")
+
+FONT_DIRS = [
+    ASSET_FONT_DIR,
+    "/usr/share/fonts/TTF", 
+    "/usr/share/fonts/dejavu", 
+    "/usr/share/fonts/truetype/dejavu",
+    "C:\\Windows\\Fonts", 
+    "/Library/Fonts",
+    "/System/Library/Fonts"
+]
 
 SEVERITY_COLORS = {
     "critical": colors.HexColor("#7b0000"),
@@ -20,7 +30,6 @@ SEVERITY_COLORS = {
     "medium": colors.HexColor("#e67e22"),
     "low": colors.HexColor("#2e8b57"),
 }
-
 
 def _register_fonts():
     for d in FONT_DIRS:
@@ -30,12 +39,12 @@ def _register_fonts():
             pdfmetrics.registerFont(TTFont("DejaVu", regular))
             pdfmetrics.registerFont(TTFont("DejaVu-Bold", bold))
             return "DejaVu", "DejaVu-Bold"
-    raise RuntimeError("DejaVu fontu bulunamadı: sudo pacman -S ttf-dejavu")
 
+    print("UYARI: DejaVu fontu bulunamadı, Türkçe karakterler PDF'te bozuk görünebilir (assets/fonts/ içine koy).")
+    return "Helvetica", "Helvetica-Bold"
 
 def _p(text, style):
     return Paragraph(escape(str(text)), style)
-
 
 def generate_pdf(parsed, ai_result, timestamp, out_dir):
     os.makedirs(out_dir, exist_ok=True)
@@ -45,6 +54,7 @@ def generate_pdf(parsed, ai_result, timestamp, out_dir):
     base = getSampleStyleSheet()
     normal = ParagraphStyle("n", parent=base["Normal"], fontName=font, fontSize=9, leading=12)
     small = ParagraphStyle("s", parent=normal, fontSize=8, leading=10)
+    sev_white = ParagraphStyle("sw", parent=small, textColor=colors.white, fontName=font_bold)
     h1 = ParagraphStyle("h1", parent=normal, fontName=font_bold, fontSize=18, leading=22, spaceAfter=6)
     h2 = ParagraphStyle("h2", parent=normal, fontName=font_bold, fontSize=12, leading=16, spaceBefore=12, spaceAfter=6)
 
@@ -69,7 +79,6 @@ def generate_pdf(parsed, ai_result, timestamp, out_dir):
             story.append(_p("Açık port bulunamadı (firewall filtreliyor olabilir).", normal))
             continue
 
-        # Port tablosu
         rows = [[_p("Port", small), _p("Servis", small), _p("Yazılım / Sürüm", small), _p("Önem", small)]]
         for p in host["ports"]:
             software = f"{p.get('product') or ''} {p.get('version') or ''}".strip()
@@ -78,7 +87,7 @@ def generate_pdf(parsed, ai_result, timestamp, out_dir):
                 _p(f"{p['port']}/{p['protocol']}", small),
                 _p(p.get("service") or "", small),
                 _p(software, small),
-                _p(sev.upper() if sev != "-" else "-", small),
+                _p(sev.upper() if sev != "-" else "-", sev_white if sev in SEVERITY_COLORS else small),
             ])
         table = Table(rows, colWidths=[2.2 * cm, 3 * cm, 8 * cm, 2.8 * cm], repeatRows=1)
         style = [
@@ -90,11 +99,9 @@ def generate_pdf(parsed, ai_result, timestamp, out_dir):
             sev = str(ai_findings.get(p["port"], {}).get("severity", "")).lower()
             if sev in SEVERITY_COLORS:
                 style.append(("BACKGROUND", (3, i), (3, i), SEVERITY_COLORS[sev]))
-                style.append(("TEXTCOLOR", (3, i), (3, i), colors.white))
         table.setStyle(TableStyle(style))
         story.append(table)
 
-        # Ayrıntılar
         story.append(_p("Bulgu Ayrıntıları", h2))
         for p in host["ports"]:
             f = ai_findings.get(p["port"])
@@ -111,7 +118,9 @@ def generate_pdf(parsed, ai_result, timestamp, out_dir):
                 ids = ", ".join(f"{c['id']} (CVSS {c['cvss']})" for c in cves)
                 story.append(_p(f"NVD eşleşmeleri: {ids}", normal))
             if f:
-                story.append(_p(f"Sebep: {f.get('reason', '')}", normal))
+                reason = str(f.get("reason", ""))
+                if reason not in rules:
+                    story.append(_p(f"Sebep: {reason}", normal))
                 story.append(_p(f"Öneri: {f.get('recommendation', '')}", normal))
 
     story.append(_p("Sınırlamalar", h2))
@@ -121,6 +130,7 @@ def generate_pdf(parsed, ai_result, timestamp, out_dir):
         "Sürümü belirsiz servisler (örn. aralık olarak bildirilenler) için CVE sorgulanamamıştır.",
         "Zafiyet script'leri çalıştırılmadıysa 'bulgu yok' sonucu 'güvenli' anlamına gelmez.",
         "Bu araç yalnızca sahibi olduğunuz veya izin aldığınız sistemlerde kullanılmalıdır.",
+        "Önerilen minimum sürümler model tahminidir, resmi kaynaktan doğrulanmalıdır.",
     ]:
         story.append(_p("• " + note, small))
 
