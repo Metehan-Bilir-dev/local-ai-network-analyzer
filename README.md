@@ -134,6 +134,7 @@ Araç, VirtualBox üzerinde **Host-Only** ağda çalışan Metasploitable 2 ve k
 ![Tarama](docs/tarama.png)
 ![AI analizi](docs/ai.png)
 ![PDF rapor](docs/pdf.png)
+![Arayüz](docs/gui.png)
 
 ## Bilinen Sınırlamalar
 
