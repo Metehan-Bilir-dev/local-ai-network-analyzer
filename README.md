@@ -1,6 +1,6 @@
 # Yapay Zeka Destekli Yerel Ağ Zafiyet Analiz ve Raporlama Aracı
 
-Nmap ile ağdaki cihazları tarayan, sonuçları **buluta göndermeden**, tamamen yerelde çalışan bir yapay zeka modeliyle yorumlayıp okunabilir raporlara dönüştüren Python tabanlı bir CLI aracıdır.
+Nmap ile ağdaki cihazları tarayan, sonuçları **buluta göndermeden**, tamamen yerelde çalışan bir yapay zeka modeliyle yorumlayıp okunabilir raporlara dönüştüren Python tabanlı bir araçtır. Komut satırı (CLI) ve masaüstü arayüzü (GUI) olmak üzere iki kullanım şekli vardır.
 
 ## Problem ve Amaç
 
@@ -8,22 +8,20 @@ Nmap çıktılarını yorumlamak zaman alır ve siber güvenlik bilgisi gerektir
 
 ## Özellikler
 
-- Yerel ağda cihaz keşfi ve numarayla hedef seçimi
+- Yerel ağda cihaz keşfi ve hedef seçimi
 - 5 tarama profili: hızlı, normal, zafiyet (NSE), kapsamlı, tüm portlar
 - Kural motoru: bilinen kritik durumlar (bindshell, Telnet, vsftpd 2.3.4 vb.) sabit kurallarla işaretlenir
 - NVD üzerinden CVE eşleştirmesi (isteğe bağlı, sadece ürün/sürüm gönderilir)
 - Yerel LLM ile Türkçe risk analizi ve öneriler (portlar gruplar halinde işlenir)
 - Çıktılar: JSON, TXT log ve PDF rapor
+- Masaüstü arayüzü (Tkinter): cihaz listesi, renkli sonuç tablosu, port ayrıntıları, koyu/açık tema, PDF'i tek tıkla açma
 
 ## Mimari
 
-```text
-CLI → Nmap → Parser → Kural Motoru → [NVD CVE] → Yerel LLM (Jan.ai) → JSON / TXT / PDF
-```
-
 ```mermaid
 flowchart LR
-    A[CLI] --> B[Nmap Tarama]
+    A1[CLI] --> B[Nmap Tarama]
+    A2[Masaüstü Arayüzü] --> B
     B --> C[Parser]
     C --> D[Kural Motoru]
     D --> E[NVD CVE Sorgusu]
@@ -36,7 +34,9 @@ flowchart LR
 
 | Dosya | Görev |
 |---|---|
-| `src/main.py` | Giriş noktası, CLI akışı |
+| `src/main.py` | Komut satırı arayüzü ve ortak yardımcı fonksiyonlar |
+| `src/gui.py` | Tkinter masaüstü arayüzü |
+| `src/core.py` | Arayüzün kullandığı iş akışı fonksiyonları (tarama, CVE, AI, kayıt) |
 | `src/scanner.py` | Nmap taraması ve ağ keşfi |
 | `src/parser.py` | Nmap çıktısını JSON'a çevirme |
 | `src/rules.py` | Kural motoru |
@@ -46,10 +46,12 @@ flowchart LR
 
 ## Gereksinimler
 
-- Linux (CachyOS/Arch üzerinde test edildi), Python 3.11+
-- Nmap
+- Python 3.11+ ve `tkinter` (arayüz için; Arch: `sudo pacman -S tk`, Debian/Ubuntu: `sudo apt install python3-tk`)
+- Nmap kurulu ve PATH'te (Windows'ta ayrıca Npcap)
 - Jan.ai ve bir GGUF model (örn. `qwen2.5-coder-7b-instruct-q4_k_m`)
-- PDF fontu (DejaVu) projeyle birlikte gelir (assets/fonts/)
+- PDF fontu (DejaVu) projeyle birlikte gelir (`assets/fonts/`)
+
+**Platform durumu:** Linux (CachyOS/Arch) üzerinde test edilmiştir. Windows ve macOS için dosya yolları, font ve PDF açma kodu uyumlu hale getirilmiştir ancak bu platformlarda test edilmemiştir.
 
 ## Kurulum
 
@@ -57,7 +59,17 @@ flowchart LR
 git clone https://github.com/Metehan-Bilir-dev/local-ai-network-analyzer.git
 cd local-ai-network-analyzer
 python -m venv .venv
-source .venv/bin/activate        # fish: source .venv/bin/activate.fish
+```
+
+Sanal ortamı etkinleştir:
+
+```bash
+source .venv/bin/activate              # Linux / macOS (bash, zsh)
+source .venv/bin/activate.fish         # fish
+.venv\Scripts\Activate.ps1             # Windows (PowerShell)
+```
+
+```bash
 pip install -r requirements.txt
 ```
 
@@ -74,6 +86,8 @@ pip install -r requirements.txt
 
 ## Kullanım
 
+### Komut satırı (CLI)
+
 ```bash
 sudo .venv/bin/python src/main.py
 sudo .venv/bin/python src/main.py --subnet 192.168.56.0/24
@@ -82,7 +96,17 @@ sudo .venv/bin/python src/main.py --target 192.168.56.101 --ai
 
 Akış: cihaz seç → tarama profili seç → (CVE sorgusu?) → (AI analizi?) → (PDF rapor?)
 
-OS tespiti (`-O`) ve bazı taramalar root yetkisi gerektirir.
+### Masaüstü arayüzü (GUI)
+
+```bash
+python src/gui.py
+```
+
+Windows'ta: `python src\gui.py`
+
+Akış: **Cihazları Bul** → listeden cihaz seç → tarama tipi ve seçenekleri belirle → **Taramayı Başlat**. Sonuç tablosunda bir porta tıklayınca kural bulguları, NVD eşleşmeleri, AI gerekçesi ve önerisi altta görünür.
+
+Arayüz **normal kullanıcıyla** çalıştırılır (Linux/Wayland'de `sudo` ile pencere açmak genelde başarısız olur). Normal kullanıcıyla keşif, sürüm taraması ve zafiyet script'leri çalışır. OS tespiti içeren **Kapsamlı Tarama** root/yönetici yetkisi ister; bu tarama tipi için CLI'yı `sudo` ile (Windows'ta yönetici terminaliyle) çalıştır.
 
 ## Çıktı Klasörleri
 
@@ -119,14 +143,17 @@ Araç, VirtualBox üzerinde **Host-Only** ağda çalışan Metasploitable 2 ve k
 - NVD sorgusu internet gerektirir.
 - 7B model prompt talimatlarına tam uymaz (örn. "arka kapı" ifadesini gereksiz kullanabilir, eski sürümlü SSH için "güvenli görünüyor" diyebilir).
 - CVE'li portların gerekçesi NVD verisinden kodla üretilir; modelin serbest metni yalnızca CVE'siz portlarda ve önerilerde kullanılır.
-- `src/test_injection.py` çalışması için önce en az bir tarama yapılmış olmalıdır (`scans/` klasörü repoya dahil değildir).
 - Sürümü belirsiz servislerde (örn. Samba "3.X - 4.X") CVE eşleşmesi yapılamaz; bu servislerin önem derecesi model tahminidir.
+- Windows ve macOS desteği test edilmemiştir.
+- Arayüzde OS tespiti (Kapsamlı Tarama) root yetkisi gerektirdiği için yalnızca yetkili çalıştırmada kullanılabilir.
+- `src/test_injection.py` çalışması için önce en az bir tarama yapılmış olmalıdır (`scans/` klasörü repoya dahil değildir).
 
 ## Gelecek Çalışmalar
 
 - NVD verisinin yerelde indirilip tamamen offline çalışma
 - NVIDIA NIM gibi ikinci bir AI backend (`--ai-backend`)
 - Taramalar arası karşılaştırma (diff)
+- Windows ve macOS üzerinde test
 
 ## Yasal Uyarı
 
