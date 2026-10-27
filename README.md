@@ -21,7 +21,18 @@ Nmap çıktılarını yorumlamak zaman alır ve siber güvenlik bilgisi gerektir
 CLI → Nmap → Parser → Kural Motoru → [NVD CVE] → Yerel LLM (Jan.ai) → JSON / TXT / PDF
 ```
 
-[Buraya mimari diyagramı görseli ekle]
+```mermaid
+flowchart LR
+    A[CLI] --> B[Nmap Tarama]
+    B --> C[Parser]
+    C --> D[Kural Motoru]
+    D --> E[NVD CVE Sorgusu]
+    E --> F[Yerel LLM<br/>Jan.ai]
+    F --> G[Doğrulama<br/>CVE ve önem derecesi]
+    G --> H[JSON]
+    G --> I[TXT]
+    G --> J[PDF]
+```
 
 | Dosya | Görev |
 |---|---|
@@ -38,7 +49,7 @@ CLI → Nmap → Parser → Kural Motoru → [NVD CVE] → Yerel LLM (Jan.ai) �
 - Linux (CachyOS/Arch üzerinde test edildi), Python 3.11+
 - Nmap
 - Jan.ai ve bir GGUF model (örn. `qwen2.5-coder-7b-instruct-q4_k_m`)
-- DejaVu fontu (PDF'te Türkçe karakterler için)
+- PDF fontu (DejaVu) projeyle birlikte gelir (assets/fonts/)
 
 ## Kurulum
 
@@ -89,22 +100,28 @@ OS tespiti (`-O`) ve bazı taramalar root yetkisi gerektirir.
 - NVD sorgusunda yalnızca ürün/sürüm bilgisi internete çıkar, IP adresi gönderilmez. Sorgu kullanıcı onayına bağlıdır.
 - Nmap çıktısı LLM'e güvenilmeyen veri olarak bildirilir. **Test sonucu:** yalnızca prompt uyarısı yeterli olmadı; banner alanına yerleştirilen talimat 5 denemenin 5'inde modeli etkiledi (zehirli portlarda 15/15) ve aynı istekteki temiz bir porta da bulaştı. Bu yüzden iki katman eklendi: (1) banner/sürüm alanları modele gönderilmeden önce temizlenir, (2) önem derecesine kural bulgusu ve CVSS'e göre koddan alt sınır konur. Aynı testte etkilenen sayısı 0/15'e düştü. Test tek bir payload türüyle ve tek modelle yapılmıştır; kesin koruma sağladığı iddia edilmez.
 - Kural bulgusu olan portların önem derecesi, modele bırakılmadan koddan zorlanır.
-- CVE numaralarını model üretmez, yalnızca NVD'den gelen kayıtlar kullanılır.
+- Modelin yazdığı CVE numaraları NVD kayıtlarıyla karşılaştırılır; doğrulanamayanlar çıktıdan silinir.
 
 ## Test Ortamı
 
 Araç, VirtualBox üzerinde **Host-Only** ağda çalışan Metasploitable 2 ve kendi cihazlarım üzerinde test edilmiştir.
 
-[Ekran görüntüleri: keşif, tarama çıktısı, AI analizi, PDF rapor]
+![Keşif](docs/kesif.png)
+![Tarama](docs/tarama.png)
+![AI analizi](docs/ai.png)
+![PDF rapor](docs/pdf.png)
 
 ## Bilinen Sınırlamalar
 
 - 7B yerel model hata yapabilir (örn. yanlış öneri, abartılı ifadeler); çıktılar doğrulanmalıdır.
-- Sürümü belirsiz servislerde (örn. Samba "3.X - 4.X") CVE eşleşmesi yapılamaz.
 - NVD'den gelen CVE'ler sürüm için doğrulanmış değil, olası eşleşmedir. Her servis için CVSS'e göre ilk 5 kayıt tutulur.
 - Zafiyet script'leri çalıştırılmadıysa "bulgu yok" sonucu "güvenli" anlamına gelmez.
 - NVD sorgusu internet gerektirir.
 - 7B model prompt talimatlarına tam uymaz (örn. "arka kapı" ifadesini gereksiz kullanabilir, eski sürümlü SSH için "güvenli görünüyor" diyebilir).
+- CVE'li portların gerekçesi NVD verisinden kodla üretilir; modelin serbest metni yalnızca CVE'siz portlarda ve önerilerde kullanılır.
+- `src/test_injection.py` çalışması için önce en az bir tarama yapılmış olmalıdır (`scans/` klasörü repoya dahil değildir).
+- Sürümü belirsiz servislerde (örn. Samba "3.X - 4.X") CVE eşleşmesi yapılamaz; bu servislerin önem derecesi model tahminidir.
+
 ## Gelecek Çalışmalar
 
 - NVD verisinin yerelde indirilip tamamen offline çalışma
